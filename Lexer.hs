@@ -1,7 +1,7 @@
 {-# LANGUAGE ViewPatterns #-}
 module Lexer where
 
-import Data.Char (isHexDigit, digitToInt)
+import Data.Char (isDigit, isHexDigit, digitToInt)
 import Data.Function (on)
 import Data.List (sortBy)
 import Data.Ord (comparing)
@@ -131,7 +131,13 @@ preprocessingOpOrPunc = [
   "or", "or_eq", "xor", "xor_eq"]
 
 -- [lex.ppnumber]
-ppNumberSuffix = map (:[]) ['0'..'9'] ++ -- ...
+simplePpNumberSuffix = ["e+","E+","e-","E-","."]
+isPpNumberDigitNoSep c = isDigit c || isIdentifierNondigit c
+isPpNumberDigitSep c = isDigit c || isNondigit c
+
+-- [lex.name]
+isNondigit c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+isIdentifierNondigit c = isNondigit c || not (isBasicSourceCharacter c)
 
 match :: String -> [PhysicalSourceCharacter] -> (Maybe String, [PhysicalSourceCharacter])
 match d cs = run d cs
@@ -171,11 +177,13 @@ phase123 pscs = run StartOfLine pscs
     bsc = phase12 Phase12General
 
     ppToken (bsc -> (Just (BSC c@(isDigit -> True)), cs)) = ppNumber [c] cs
-    ppToken (bsc -> (Just (BSC ('.' -> True), bsc -> (Just (BSC c@(isDigit -> True)), cs)))) = ppNumber ['.', c] cs
+    ppToken (bsc -> (Just (BSC '.'), bsc -> (Just (BSC c@(isDigit -> True)), cs))) = ppNumber ['.', c] cs
     ppToken (oneOf preprocessingOpOrPunc -> (Just s, cs)) = (PreprocessingOpOrPunc s, cs)
     ppToken cs = error $ show cs
 
-    ppNumber ns (oneOf ppNumberSuffix -> (Just s, cs)) = ppNumber (ns ++ s) cs
+    ppNumber ns (oneOf simplePpNumberSuffix -> (Just s, cs)) = ppNumber (ns ++ s) cs
+    ppNumber ns (bsc -> (Just (BSC c@(isPpNumberDigitNoSep -> True)), cs)) = ppNumber (ns ++ [c]) cs
+    ppNumber ns (bsc -> (Just (BSC '\''), bsc -> (Just (BSC c@(isPpNumberDigitSep -> True)), cs))) = ppNumber (ns ++ ['\'', c]) cs
     ppNumber ns cs = (PpNumber ns, cs)
 
     headerName = undefined
