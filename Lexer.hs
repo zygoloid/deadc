@@ -1,6 +1,7 @@
 {-# LANGUAGE ViewPatterns #-}
 module Lexer where
 
+import Control.Arrow (first)
 import Data.Char (isDigit, isHexDigit, digitToInt)
 import Data.Function (on)
 import Data.List (sortBy)
@@ -139,6 +140,15 @@ isPpNumberDigitSep c = isDigit c || isNondigit c
 isNondigit c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
 isIdentifierNondigit c = isNondigit c || not (isBasicSourceCharacter c)
 
+-- [lex.icon]
+isOctalDigit = (`elem` ['0'..'7'])
+isHexadecimalDigit = isHexDigit
+
+-- [lex.ccon]
+isSimpleEscapeSequence = (`elem` "'\"?\\abfnrtv")
+csLiteralPrefix = oneOf ["", "u", "U", "L"]
+isCChar c = c `notElem` "'\\\n"
+
 match :: String -> [PhysicalSourceCharacter] -> (Maybe String, [PhysicalSourceCharacter])
 match d cs = run d cs
   where
@@ -152,6 +162,22 @@ oneOf ss cs = run (reverse $ sortBy (comparing length) ss) cs
     run (s:ss) (match s -> r@(Just _, _)) = r
     run (s:ss) cs = run ss cs
     run [] cs = (Nothing, cs)
+
+upTo :: Int -> ([a] -> (Maybe b, [a])) -> [a] -> ([b], [a])
+upTo 0 _ as = ([], as)
+upTo n f (f -> (Just b, as)) = (b:bs, as)
+  where (bs, as) = upTo (n - 1) f as
+upTo _ _ as = ([], as)
+
+many :: ([a] -> (Maybe b, [a])) -> [a] -> ([b], [a])
+many f (f -> (Just b, as)) = (b:bs, as')
+  where (bs, as') = many f as
+many f cs = ([], cs)
+
+many1 :: ([a] -> (Maybe b, [a])) -> [a] -> (Maybe [b], [a])
+many1 f (f -> (Just b, as)) = (Just (b:bs), as')
+  where (bs, as') = many f as
+many1 f cs = (Nothing, cs)
 
 phase123 :: LexerMonad m => [PhysicalSourceCharacter] -> m [PpTokOrWhitespace]
 phase123 pscs = run StartOfLine pscs
@@ -179,11 +205,56 @@ phase123 pscs = run StartOfLine pscs
     ppToken (bsc -> (Just (BSC c@(isDigit -> True)), cs)) = ppNumber [c] cs
     ppToken (bsc -> (Just (BSC '.'), bsc -> (Just (BSC c@(isDigit -> True)), cs))) = ppNumber ['.', c] cs
     ppToken (oneOf preprocessingOpOrPunc -> (Just s, cs)) = (PreprocessingOpOrPunc s, cs)
+    -- FIXME: UDLs
+    ppToken (csLiteralPrefix -> (Just prefix,
+             bsc -> (Just (BSC '\''),
+             cCharSequence -> (Just ccs,
+             bsc -> (Just (BSC '\''),
+             cs))))) = (CharacterLiteral (prefix ++ "'" ++ ccs ++ "'"), cs)
+    ppToken (csLiteralPrefix -> (Just prefix,
+             bsc -> (Just (BSC '"'),
+             sCharSequence -> (scs,
+             bsc -> (Just (BSC '"'),
+             cs))))) = (StringLiteral (prefix ++ "\"" ++ scs ++ "\""), cs)
+    ppToken (bsc -> (Just (BSC 'u'),
+             bsc -> (Just (BSC '8'),
+             bsc -> (Just (BSC '"'),
+             sCharSequence -> (scs,
+             bsc -> (Just (BSC '"'),
+             cs)))))) = (StringLiteral ("u8\"" ++ scs ++ "\""), cs)
     ppToken cs = error $ show cs
 
     ppNumber ns (oneOf simplePpNumberSuffix -> (Just s, cs)) = ppNumber (ns ++ s) cs
     ppNumber ns (bsc -> (Just (BSC c@(isPpNumberDigitNoSep -> True)), cs)) = ppNumber (ns ++ [c]) cs
     ppNumber ns (bsc -> (Just (BSC '\''), bsc -> (Just (BSC c@(isPpNumberDigitSep -> True)), cs))) = ppNumber (ns ++ ['\'', c]) cs
     ppNumber ns cs = (PpNumber ns, cs)
+
+    csc = phase12 CSCharSequence
+    octalDigit (csc -> (Just (BSC d@(isOctalDigit -> True)), cs)) = (Just d, cs)
+    octalDigit _ = (Nothing, [])
+    hexadecimalDigit (csc -> (Just (BSC d@(isHexadecimalDigit -> True)), cs)) = (Just d, cs)
+    hexadecimalDigit _ = (Nothing, [])
+
+    escapeSequence (csc -> (Just (BSC '\\'),
+                    csc -> (Just (BSC c@(isSimpleEscapeSequence -> True)),
+                    cs))) = (Just ['\\', c], cs)
+    escapeSequence (csc -> (Just (BSC '\\'),
+                    upTo 3 octalDigit -> (os@(_:_),
+                    cs))) = (Just ("\\" ++ os), cs)
+    escapeSequence (csc -> (Just (BSC '\\'),
+                    oneOf ["x", "X"] -> (Just x,
+                    many hexadecimalDigit -> (xs@(_:_),
+                    cs)))) = (Just ("\\" ++ x ++ xs), cs)
+    escapeSequence cs = (Nothing, [])
+
+    cChar (csc -> (Just (BSC c@(isCChar -> True)), cs)) = (Just [c], cs)
+    cChar (escapeSequence -> (Just es, cs)) = (Just es, cs)
+    cChar _ = (Nothing, [])
+    cCharSequence = (fmap.first.fmap) concat $ many1 cChar
+
+    sChar (csc -> (Just (BSC c@(isCChar -> True)), cs)) = (Just [c], cs)
+    sChar (escapeSequence -> (Just es, cs)) = (Just es, cs)
+    sChar _ = (Nothing, [])
+    sCharSequence = (fmap.first) concat $ many sChar
 
     headerName = undefined
