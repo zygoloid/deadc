@@ -2,6 +2,9 @@
 module Lexer where
 
 import Data.Char (isHexDigit, digitToInt)
+import Data.Function (on)
+import Data.List (sortBy)
+import Data.Ord (comparing)
 
 newtype PhysicalSourceCharacter = PSC Char
   deriving (Show)
@@ -57,7 +60,7 @@ isValidUCN Phase12General ch = not (isBasicSourceCharacter ch) && ch >= '\x20' &
 isValidUCN _ _ = True
 
 isValidPSC :: Phase12Kind -> Char -> Bool
-isValidPSC Phase12General ch = ch >= '\x20' && not (ch >= '\x7F' && ch <= '\x9F')
+isValidPSC Phase12General ch = isWhitespace ch || (ch >= '\x20' && not (ch >= '\x7F' && ch <= '\x9F'))
 isValidPSC _ _ = True
 
 phase12 :: Phase12Kind -> [PhysicalSourceCharacter] -> (Maybe BasicSourceCharacter, [PhysicalSourceCharacter])
@@ -115,13 +118,42 @@ data Phase123State
   | AfterHashInclude
   | AnywhereElse
 
+-- [lex.operators]
+preprocessingOpOrPunc = [
+  "{", "}", "[", "]", "#", "##", "(", ")",
+  "<:", ":>", "<%", "%>", "%:", "%:%:", ";", ":", "...",
+  "new", "delete", "?", "::", ".", ".*",
+  "+", "-", "*", "/", "%", "^", "&", "|", "~",
+  "!", "=", "<", ">", "+=", "-=", "*=", "/=", "%=",
+  "^=", "&=", "|=", "<<", ">>", ">>=", "<<=", "==", "!=",
+  "<=", ">=", "&&", "||", "++", "--", ",", "->*", "->",
+  "and", "and_eq", "bitand", "bitor", "compl", "not", "not_eq",
+  "or", "or_eq", "xor", "xor_eq"]
+
+-- [lex.ppnumber]
+ppNumberSuffix = map (:[]) ['0'..'9'] ++ -- ...
+
+match :: String -> [PhysicalSourceCharacter] -> (Maybe String, [PhysicalSourceCharacter])
+match d cs = run d cs
+  where
+    run (d:ds) (phase12 Phase12General -> (Just (BSC c), cs)) | c == d = run ds cs
+                                                              | otherwise = (Nothing, [])
+    run [] cs = (Just d, cs)
+
+oneOf :: [String] -> [PhysicalSourceCharacter] -> (Maybe String, [PhysicalSourceCharacter])
+oneOf ss cs = run (reverse $ sortBy (comparing length) ss) cs
+  where
+    run (s:ss) (match s -> r@(Just _, _)) = r
+    run (s:ss) cs = run ss cs
+    run [] cs = (Nothing, cs)
+
 phase123 :: LexerMonad m => [PhysicalSourceCharacter] -> m [PpTokOrWhitespace]
 phase123 pscs = run StartOfLine pscs
   where
     run AfterHashInclude cs = headerName cs
     run state cs = ppTokOrWhitespace cs
       where
-        ppTokOrWhitespace (phase12 Phase12General -> (Just c@(BSC (isWhitespace -> True)), cs)) = whitespace [c] cs
+        ppTokOrWhitespace (bsc -> (Just c@(BSC (isWhitespace -> True)), cs)) = whitespace [c] cs
         ppTokOrWhitespace [] = return []
         ppTokOrWhitespace cs = do
             toks <- run (newState state tok) cs'
@@ -131,10 +163,19 @@ phase123 pscs = run StartOfLine pscs
                 newState AfterHash (Identifier "include") = AfterHashInclude
                 newState _ _ = AnywhereElse
 
-        whitespace ws (phase12 Phase12General -> (Just w@(BSC (isWhitespace -> True)), cs)) = whitespace (w:ws) cs
+        whitespace ws (bsc -> (Just w@(BSC (isWhitespace -> True)), cs)) = whitespace (w:ws) cs
         whitespace ws cs = do
           toks <- run (if (BSC '\n') `elem` ws then StartOfLine else state) cs
           return (Whitespace (reverse ws):toks)
 
-    ppToken = undefined
+    bsc = phase12 Phase12General
+
+    ppToken (bsc -> (Just (BSC c@(isDigit -> True)), cs)) = ppNumber [c] cs
+    ppToken (bsc -> (Just (BSC ('.' -> True), bsc -> (Just (BSC c@(isDigit -> True)), cs)))) = ppNumber ['.', c] cs
+    ppToken (oneOf preprocessingOpOrPunc -> (Just s, cs)) = (PreprocessingOpOrPunc s, cs)
+    ppToken cs = error $ show cs
+
+    ppNumber ns (oneOf ppNumberSuffix -> (Just s, cs)) = ppNumber (ns ++ s) cs
+    ppNumber ns cs = (PpNumber ns, cs)
+
     headerName = undefined
