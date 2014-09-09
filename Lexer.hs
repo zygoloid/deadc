@@ -50,7 +50,7 @@ hexDigit cs = (Nothing, cs)
 
 data Phase12Kind
   = CSCharSequence -- s-char-sequence or c-char-sequence
-  | RCharSequence -- r-char-sequence
+  | DRCharSequence -- r-char-sequence
   | Phase12General -- anything else
 
 isSurrogateUCN :: Int -> Bool
@@ -65,7 +65,7 @@ isValidPSC Phase12General ch = isWhitespace ch || (ch >= '\x20' && not (ch >= '\
 isValidPSC _ _ = True
 
 phase12 :: Phase12Kind -> [PhysicalSourceCharacter] -> (Maybe BasicSourceCharacter, [PhysicalSourceCharacter])
-phase12 RCharSequence pscs = (fmap BSC c, cs)
+phase12 DRCharSequence pscs = (fmap BSC c, cs)
   where (c, cs) = impldef_phase1 pscs
 phase12 kind pscs = phase2 pscs
   where
@@ -148,13 +148,17 @@ isHexadecimalDigit = isHexDigit
 isSimpleEscapeSequence = (`elem` "'\"?\\abfnrtv")
 csLiteralPrefix = oneOf ["", "u", "U", "L"]
 isCChar c = c `notElem` "'\\\n"
+isSChar c = c `notElem` "\"\\\n"
+isDChar c = c `notElem` " ()\\\t\v\r\n"
 
-match :: String -> [PhysicalSourceCharacter] -> (Maybe String, [PhysicalSourceCharacter])
-match d cs = run d cs
+matchGen :: Phase12Kind -> String -> [PhysicalSourceCharacter] -> (Maybe String, [PhysicalSourceCharacter])
+matchGen kind d cs = run d cs
   where
-    run (d:ds) (phase12 Phase12General -> (Just (BSC c), cs)) | c == d = run ds cs
-                                                              | otherwise = (Nothing, [])
+    run (d:ds) (phase12 kind -> (Just (BSC c), cs)) | c == d = run ds cs
+                                                    | otherwise = (Nothing, [])
     run [] cs = (Just d, cs)
+match = matchGen Phase12General
+matchRaw = matchGen DRCharSequence
 
 oneOf :: [String] -> [PhysicalSourceCharacter] -> (Maybe String, [PhysicalSourceCharacter])
 oneOf ss cs = run (reverse $ sortBy (comparing length) ss) cs
@@ -201,11 +205,19 @@ phase123 pscs = run StartOfLine pscs
           return (Whitespace (reverse ws):toks)
 
     bsc = phase12 Phase12General
+    rsc = phase12 DRCharSequence
 
-    ppToken (bsc -> (Just (BSC c@(isDigit -> True)), cs)) = ppNumber [c] cs
-    ppToken (bsc -> (Just (BSC '.'), bsc -> (Just (BSC c@(isDigit -> True)), cs))) = ppNumber ['.', c] cs
-    ppToken (oneOf preprocessingOpOrPunc -> (Just s, cs)) = (PreprocessingOpOrPunc s, cs)
     -- FIXME: UDLs
+    ppToken (csLiteralPrefix -> (Just prefix,
+             bsc -> (Just (BSC 'R'),
+             bsc -> (Just (BSC '"'),
+             dCharSequence -> (dcs,
+             bsc -> (Just (BSC '('),
+             rCharSequence dcs -> (rcs,
+             bsc -> (Just (BSC ')'),
+             matchRaw dcs -> (Just _,
+             bsc -> (Just (BSC '"'),
+             cs)))))))))) = (StringLiteral (prefix ++ "R\"" ++ dcs ++ "(" ++ rcs ++ ")" ++ dcs ++ "\""), cs)
     ppToken (csLiteralPrefix -> (Just prefix,
              bsc -> (Just (BSC '\''),
              cCharSequence -> (Just ccs,
@@ -222,14 +234,30 @@ phase123 pscs = run StartOfLine pscs
              sCharSequence -> (scs,
              bsc -> (Just (BSC '"'),
              cs)))))) = (StringLiteral ("u8\"" ++ scs ++ "\""), cs)
-    ppToken cs = error $ show cs
+    ppToken (bsc -> (Just (BSC c@(isDigit -> True)), cs)) = ppNumber [c] cs
+    ppToken (bsc -> (Just (BSC '.'), bsc -> (Just (BSC c@(isDigit -> True)), cs))) = ppNumber ['.', c] cs
+    ppToken (oneOf preprocessingOpOrPunc -> (Just s, cs)) = (PreprocessingOpOrPunc s, cs)
+    ppToken (identifier -> (Just s, cs)) = (Identifier s, cs)
+    ppToken (bsc -> (Just c, cs)) = (Other c, cs)
 
     ppNumber ns (oneOf simplePpNumberSuffix -> (Just s, cs)) = ppNumber (ns ++ s) cs
     ppNumber ns (bsc -> (Just (BSC c@(isPpNumberDigitNoSep -> True)), cs)) = ppNumber (ns ++ [c]) cs
     ppNumber ns (bsc -> (Just (BSC '\''), bsc -> (Just (BSC c@(isPpNumberDigitSep -> True)), cs))) = ppNumber (ns ++ ['\'', c]) cs
     ppNumber ns cs = (PpNumber ns, cs)
 
+    identifierNondigit (csc -> (Just (BSC d@(isIdentifierNondigit -> True)), cs)) = (Just d, cs)
+    identifierNondigit _ = (Nothing, [])
+
+    identifierBody (identifierNondigit -> r@(Just _, _)) = r
+    identifierBody (digit -> r@(Just _, _)) = r
+    identifierBody _ = (Nothing, [])
+
+    identifier (identifierNondigit -> (Just i, many identifierBody -> (is, cs))) = (Just (i:is), cs)
+    identifier _ = (Nothing, [])
+
     csc = phase12 CSCharSequence
+    digit (csc -> (Just (BSC d@(isDigit -> True)), cs)) = (Just d, cs)
+    digit _ = (Nothing, [])
     octalDigit (csc -> (Just (BSC d@(isOctalDigit -> True)), cs)) = (Just d, cs)
     octalDigit _ = (Nothing, [])
     hexadecimalDigit (csc -> (Just (BSC d@(isHexadecimalDigit -> True)), cs)) = (Just d, cs)
@@ -252,9 +280,18 @@ phase123 pscs = run StartOfLine pscs
     cChar _ = (Nothing, [])
     cCharSequence = (fmap.first.fmap) concat $ many1 cChar
 
-    sChar (csc -> (Just (BSC c@(isCChar -> True)), cs)) = (Just [c], cs)
+    sChar (csc -> (Just (BSC c@(isSChar -> True)), cs)) = (Just [c], cs)
     sChar (escapeSequence -> (Just es, cs)) = (Just es, cs)
     sChar _ = (Nothing, [])
     sCharSequence = (fmap.first) concat $ many sChar
+
+    dChar (rsc -> (Just (BSC c@(isDChar -> True)), cs)) = (Just c, cs)
+    dChar _ = (Nothing, [])
+    dCharSequence = many dChar
+
+    rChar dcs (matchRaw (")" ++ dcs ++ "\"") -> (Just _, _)) = (Nothing, [])
+    rChar dcs (rsc -> (Just (BSC c), cs)) = (Just c, cs)
+    rChar dcs _ = (Nothing, [])
+    rCharSequence dcs = many (rChar dcs)
 
     headerName = undefined
