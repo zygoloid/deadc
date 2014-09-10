@@ -213,7 +213,6 @@ phase123 pscs = run StartOfLine pscs
     bsc = phase12 Phase12General
     rsc = phase12 DRCharSequence
 
-    -- FIXME: UDLs
     ppToken (csLiteralPrefix -> (Just prefix,
              bsc -> (Just (BSC 'R'),
              bsc -> (Just (BSC '"'),
@@ -223,23 +222,27 @@ phase123 pscs = run StartOfLine pscs
              bsc -> (Just (BSC ')'),
              matchRaw dcs -> (Just _,
              bsc -> (Just (BSC '"'),
-             cs)))))))))) = (StringLiteral (prefix ++ "R\"" ++ dcs ++ "(" ++ rcs ++ ")" ++ dcs ++ "\""), cs)
+             udSuffix -> (ud,
+             cs))))))))))) = (StringLiteral (prefix ++ "R\"" ++ dcs ++ "(" ++ rcs ++ ")" ++ dcs ++ "\"" ++ ud), cs)
     ppToken (csLiteralPrefix -> (Just prefix,
              bsc -> (Just (BSC '\''),
              cCharSequence -> (Just ccs,
              bsc -> (Just (BSC '\''),
-             cs))))) = (CharacterLiteral (prefix ++ "'" ++ ccs ++ "'"), cs)
+             udSuffix -> (ud,
+             cs)))))) = (CharacterLiteral (prefix ++ "'" ++ ccs ++ "'" ++ ud), cs)
     ppToken (csLiteralPrefix -> (Just prefix,
              bsc -> (Just (BSC '"'),
              sCharSequence -> (scs,
              bsc -> (Just (BSC '"'),
-             cs))))) = (StringLiteral (prefix ++ "\"" ++ scs ++ "\""), cs)
+             udSuffix -> (ud,
+             cs)))))) = (StringLiteral (prefix ++ "\"" ++ scs ++ "\"" ++ ud), cs)
     ppToken (bsc -> (Just (BSC 'u'),
              bsc -> (Just (BSC '8'),
              bsc -> (Just (BSC '"'),
              sCharSequence -> (scs,
              bsc -> (Just (BSC '"'),
-             cs)))))) = (StringLiteral ("u8\"" ++ scs ++ "\""), cs)
+             udSuffix -> (ud,
+             cs))))))) = (StringLiteral ("u8\"" ++ scs ++ "\"" ++ ud), cs)
     ppToken (bsc -> (Just (BSC c@(isDigit -> True)), cs)) = ppNumber [c] cs
     ppToken (bsc -> (Just (BSC '.'), bsc -> (Just (BSC c@(isDigit -> True)), cs))) = ppNumber ['.', c] cs
     ppToken (oneOf preprocessingOpOrPunc -> (Just s, cs)) = (PreprocessingOpOrPunc s, cs)
@@ -260,6 +263,9 @@ phase123 pscs = run StartOfLine pscs
 
     identifier (identifierNondigit -> (Just i, many identifierBody -> (is, cs))) = (Just (i:is), cs)
     identifier _ = (Nothing, [])
+
+    udSuffix (identifier -> (Just id, cs)) = (id, cs)
+    udSuffix cs = ([], cs)
 
     csc = phase12 CSCharSequence
     digit (csc -> (Just (BSC d@(isDigit -> True)), cs)) = (Just d, cs)
