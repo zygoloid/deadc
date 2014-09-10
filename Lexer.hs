@@ -247,6 +247,8 @@ phase123 pscs = run StartOfLine pscs
     ppToken (bsc -> (Just (BSC '.'), bsc -> (Just (BSC c@(isDigit -> True)), cs))) = ppNumber ['.', c] cs
     ppToken (oneOf preprocessingOpOrPunc -> (Just s, cs)) = (PreprocessingOpOrPunc s, cs)
     ppToken (identifier -> (Just s, cs)) = (Identifier s, cs)
+    ppToken (bsc -> (Just (BSC '\''), cs)) = error "unmatched ' character"
+    ppToken (bsc -> (Just (BSC '"'), cs)) = error "unmatched \" character"
     ppToken (bsc -> (Just c, cs)) = (Other c, cs)
 
     ppNumber ns (oneOf simplePpNumberSuffix -> (Just s, cs)) = ppNumber (ns ++ s) cs
