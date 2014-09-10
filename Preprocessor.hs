@@ -93,8 +93,6 @@ makePpFile toks = case makeGroup toks of
 
 class Monad m => MonadPreprocessor m where
   includeFile :: Bool -> String -> m Group
-instance MonadPreprocessor Maybe where
-  includeFile = error "can't include files"
 
 -- FIXME: The standard doesn't say to do this, but it's implied.
 concatTextLines :: Group -> Group

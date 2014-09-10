@@ -126,9 +126,6 @@ data PpTokOrWhitespace
   | Whitespace Whitespace
   deriving (Show)
 
-class Monad m => LexerMonad m
-instance LexerMonad Maybe
-
 data Phase123State
   = StartOfLine
   | AfterHash
@@ -207,8 +204,8 @@ many1 f (f -> (Just b, as)) = (Just (b:bs), as')
   where (bs, as') = many f as
 many1 f cs = (Nothing, cs)
 
-phase123 :: LexerMonad m => [PhysicalSourceCharacter] -> m [PpTokOrWhitespace]
-phase123 pscs = return $ run StartOfLine pscs
+phase123 :: [PhysicalSourceCharacter] -> [PpTokOrWhitespace]
+phase123 pscs = run StartOfLine pscs
   where
     run _ [] = []
     run AfterHashInclude (headerName -> (Just hn, cs)) = PpTok hn:run AnywhereElse cs
@@ -280,8 +277,8 @@ phase123 pscs = return $ run StartOfLine pscs
                      many (satisfies isWhitespace) -> (_,
                      cs@(bsc -> (Just (BSC '\n'), _))))) = (Whitespace Horizontal, cs)
     skipLineComment (oneOf ["\r", "\v"] -> (Just _, _)) = error "vertical whitespace in // comment not followed by newline"
-    skipLineComment (c:cs) = skipLineComment cs
-    skipLineComment [] = error "no newline after // comment"
+    skipLineComment (bsc -> (Just _, cs)) = skipLineComment cs
+    skipLineComment _ = error "no newline after // comment"
 
     ppNumber ns (oneOf simplePpNumberSuffix -> (Just s, cs)) = ppNumber (ns ++ s) cs
     ppNumber ns (bsc -> (Just (BSC c@(isPpNumberDigitNoSep -> True)), cs)) = ppNumber (ns ++ [c]) cs
