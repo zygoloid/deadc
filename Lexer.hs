@@ -151,6 +151,10 @@ isCChar c = c `notElem` "'\\\n"
 isSChar c = c `notElem` "\"\\\n"
 isDChar c = c `notElem` " ()\\\t\v\r\n"
 
+-- [lex.header]
+isHChar c = c `notElem` "\n>"
+isQChar c = c `notElem` "\n\""
+
 matchGen :: Phase12Kind -> String -> [PhysicalSourceCharacter] -> (Maybe String, [PhysicalSourceCharacter])
 matchGen kind d cs = run d cs
   where
@@ -186,7 +190,9 @@ many1 f cs = (Nothing, cs)
 phase123 :: LexerMonad m => [PhysicalSourceCharacter] -> m [PpTokOrWhitespace]
 phase123 pscs = run StartOfLine pscs
   where
-    run AfterHashInclude cs = headerName cs
+    run AfterHashInclude (headerName -> (Just hn, cs)) = do
+      toks <- run AnywhereElse cs
+      return (PpTok hn:toks)
     run state cs = ppTokOrWhitespace cs
       where
         ppTokOrWhitespace (bsc -> (Just c@(BSC (isWhitespace -> True)), cs)) = whitespace [c] cs
@@ -294,4 +300,20 @@ phase123 pscs = run StartOfLine pscs
     rChar dcs _ = (Nothing, [])
     rCharSequence dcs = many (rChar dcs)
 
-    headerName = undefined
+    hChar (bsc -> (Just (BSC c@(isHChar -> True)), cs)) = (Just c, cs)
+    hChar _ = (Nothing, [])
+    hCharSequence = many1 hChar
+
+    qChar (bsc -> (Just (BSC c@(isQChar -> True)), cs)) = (Just c, cs)
+    qChar _ = (Nothing, [])
+    qCharSequence = many1 qChar
+
+    headerName (bsc -> (Just (BSC '<'),
+                hCharSequence -> (Just hcs,
+                bsc -> (Just (BSC '>'),
+                cs)))) = (Just $ HeaderName ("<" ++ hcs ++ ">"), cs)
+    headerName (bsc -> (Just (BSC '"'),
+                qCharSequence -> (Just qcs,
+                bsc -> (Just (BSC '"'),
+                cs)))) = (Just $ HeaderName ("\"" ++ qcs ++ "\""), cs)
+    headerName _ = (Nothing, [])
