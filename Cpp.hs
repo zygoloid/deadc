@@ -12,5 +12,5 @@ instance MonadPreprocessor Id where
 
 main = do
   s <- getContents
-  let ppToks = {- extractTokens . concatTextLines . makePpFile . -} phase123 $ map PSC s
-  putStrLn $ concatMap ((++ "\n") . show) ppToks
+  let ppToks = {- extractTokens . concatTextLines . -} makePpFile . phase123 $ map PSC s
+  putStrLn $ concatMap (:"\n") $ show ppToks

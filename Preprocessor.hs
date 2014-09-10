@@ -6,6 +6,7 @@ import Lexer (BasicSourceCharacter(..),
               PreprocessingToken(..),
               Whitespace(..))
 
+import Control.Arrow (first)
 import Control.Monad (liftM, liftM2)
 
 containsNewline :: PpTokOrWhitespace -> Bool
@@ -43,7 +44,7 @@ optionalWhitespace r = r
 
 -- Identify and extract a directive.
 directive :: [PpTokOrWhitespace] -> Maybe (String, [PpTokOrWhitespace], [PpTokOrWhitespace])
-directive (PpTok (PreprocessingOpOrPunc "#") :
+directive (optionalWhitespace -> PpTok (PreprocessingOpOrPunc "#") :
            (optionalWhitespace -> (PpTok (Identifier directive):ts))) = Just (directive, line, rest)
   where
     (line, rest) = splitAtNewline ts
@@ -72,9 +73,9 @@ makePpFile toks = case makeGroup toks of
     finishGroupPart part toks = (Just part, toks)
     endGroup toks = (Nothing, toks)
 
-    makeGroup = run []
-      where run gps (makeGroupPart -> (Just p, toks)) = run (p:gps) toks
-            run gps toks = (Group (reverse gps), toks)
+    makeGroup = first Group . run
+      where run (makeGroupPart -> (Just p, toks)) = first (p:) (run toks)
+            run toks = ([], toks)
 
     makeIfSection ifCond ts = result
       where
