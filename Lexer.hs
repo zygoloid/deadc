@@ -270,8 +270,8 @@ phase123 pscs = run StartOfLine pscs
     skipBlockComment (bsc -> (Just (BSC '*'),
                       bsc -> (Just (BSC '/'),
 		      cs))) = (Whitespace Horizontal, cs)
-    skipBlockComment (c:cs) = skipBlockComment cs
-    skipBlockComment [] = error "unclosed /* comment"
+    skipBlockComment (bsc -> (Just _, cs)) = skipBlockComment cs
+    skipBlockComment _ = error "unclosed /* comment"
     skipLineComment cs@(bsc -> (Just (BSC '\n'), _)) = (Whitespace Horizontal, cs)
     skipLineComment (oneOf ["\r", "\v"] -> (Just _,
                      many (satisfies isWhitespace) -> (_,
