@@ -2,9 +2,11 @@
 module Lexer where
 
 import Control.Arrow (first)
+import Control.Monad (liftM)
 import Data.Char (isDigit, isHexDigit, digitToInt)
 import Data.Function (on)
 import Data.List (sortBy)
+import Data.Maybe (isJust)
 import Data.Ord (comparing)
 
 newtype PhysicalSourceCharacter = PSC Char
@@ -29,8 +31,16 @@ trigraph '>' = Just '}'
 trigraph '-' = Just '~'
 
 -- [lex.charset]
+whitespaceKind :: Char -> Maybe Whitespace
+whitespaceKind ' ' = Just Horizontal
+whitespaceKind '\t' = Just Horizontal
+whitespaceKind '\v' = Just Vertical
+whitespaceKind '\r' = Just Vertical
+whitespaceKind '\n' = Just Newline
+whitespaceKind _ = Nothing
+
 isWhitespace :: Char -> Bool
-isWhitespace = (`elem` " \v\t\r\n")
+isWhitespace = isJust . whitespaceKind
 
 isBasicSourceCharacter :: Char -> Bool
 isBasicSourceCharacter c
@@ -105,9 +115,15 @@ data PreprocessingToken
   | Other BasicSourceCharacter
   deriving (Show)
 
+data Whitespace
+  = Horizontal
+  | Vertical
+  | Newline
+  deriving (Show)
+
 data PpTokOrWhitespace
   = PpTok PreprocessingToken
-  | Whitespace [BasicSourceCharacter]
+  | Whitespace Whitespace
   deriving (Show)
 
 class Monad m => LexerMonad m
@@ -155,11 +171,15 @@ isDChar c = c `notElem` " ()\\\t\v\r\n"
 isHChar c = c `notElem` "\n>"
 isQChar c = c `notElem` "\n\""
 
+satisfies :: (Char -> Bool) -> [PhysicalSourceCharacter] -> (Maybe Char, [PhysicalSourceCharacter])
+satisfies f (phase12 Phase12General -> (Just (BSC x), xs)) | f x = (Just x, xs)
+satisfies _ xs = (Nothing, xs)
+
 matchGen :: Phase12Kind -> String -> [PhysicalSourceCharacter] -> (Maybe String, [PhysicalSourceCharacter])
 matchGen kind d cs = run d cs
   where
     run (d:ds) (phase12 kind -> (Just (BSC c), cs)) | c == d = run ds cs
-                                                    | otherwise = (Nothing, [])
+    run (d:ds) _ = (Nothing, [])
     run [] cs = (Just d, cs)
 match = matchGen Phase12General
 matchRaw = matchGen DRCharSequence
@@ -188,30 +208,28 @@ many1 f (f -> (Just b, as)) = (Just (b:bs), as')
 many1 f cs = (Nothing, cs)
 
 phase123 :: LexerMonad m => [PhysicalSourceCharacter] -> m [PpTokOrWhitespace]
-phase123 pscs = run StartOfLine pscs
+phase123 pscs = return $ run StartOfLine pscs
   where
-    run AfterHashInclude (headerName -> (Just hn, cs)) = do
-      toks <- run AnywhereElse cs
-      return (PpTok hn:toks)
-    run state cs = ppTokOrWhitespace cs
-      where
-        ppTokOrWhitespace (bsc -> (Just c@(BSC (isWhitespace -> True)), cs)) = whitespace [c] cs
-        ppTokOrWhitespace [] = return []
-        ppTokOrWhitespace cs = do
-            toks <- run (newState state tok) cs'
-            return (PpTok tok:toks)
-          where (tok, cs') = ppToken cs
-                newState StartOfLine (PreprocessingOpOrPunc "#") = AfterHash
-                newState AfterHash (Identifier "include") = AfterHashInclude
-                newState _ _ = AnywhereElse
-
-        whitespace ws (bsc -> (Just w@(BSC (isWhitespace -> True)), cs)) = whitespace (w:ws) cs
-        whitespace ws cs = do
-          toks <- run (if (BSC '\n') `elem` ws then StartOfLine else state) cs
-          return (Whitespace (reverse ws):toks)
+    run _ [] = []
+    run AfterHashInclude (headerName -> (Just hn, cs)) = PpTok hn:run AnywhereElse cs
+    run state cs = (tok:run (newState state tok) cs')
+      where (tok, cs') = ppTokOrWhitespace cs
+            newState _ (Whitespace Newline) = StartOfLine
+            newState StartOfLine (PpTok (PreprocessingOpOrPunc "#")) = AfterHash
+            newState AfterHash (PpTok (Identifier "include")) = AfterHashInclude
+            newState _ _ = AnywhereElse
 
     bsc = phase12 Phase12General
     rsc = phase12 DRCharSequence
+
+    ppTokOrWhitespace (bsc -> (Just (BSC (whitespaceKind -> Just w)), cs)) = (Whitespace w, cs)
+    ppTokOrWhitespace (bsc -> (Just (BSC '/'),
+                       bsc -> (Just (BSC '*'),
+                       cs))) = skipBlockComment cs
+    ppTokOrWhitespace (bsc -> (Just (BSC '/'),
+                       bsc -> (Just (BSC '/'),
+                       cs))) = skipLineComment cs
+    ppTokOrWhitespace cs = first PpTok $ ppToken cs
 
     ppToken (csLiteralPrefix -> (Just prefix,
              bsc -> (Just (BSC 'R'),
@@ -250,6 +268,20 @@ phase123 pscs = run StartOfLine pscs
     ppToken (bsc -> (Just (BSC '\''), cs)) = error "unmatched ' character"
     ppToken (bsc -> (Just (BSC '"'), cs)) = error "unmatched \" character"
     ppToken (bsc -> (Just c, cs)) = (Other c, cs)
+
+    -- [lex.comment]
+    skipBlockComment (bsc -> (Just (BSC '*'),
+                      bsc -> (Just (BSC '/'),
+		      cs))) = (Whitespace Horizontal, cs)
+    skipBlockComment (c:cs) = skipBlockComment cs
+    skipBlockComment [] = error "unclosed /* comment"
+    skipLineComment cs@(bsc -> (Just (BSC '\n'), _)) = (Whitespace Horizontal, cs)
+    skipLineComment (oneOf ["\r", "\v"] -> (Just _,
+                     many (satisfies isWhitespace) -> (_,
+                     cs@(bsc -> (Just (BSC '\n'), _))))) = (Whitespace Horizontal, cs)
+    skipLineComment (oneOf ["\r", "\v"] -> (Just _, _)) = error "vertical whitespace in // comment not followed by newline"
+    skipLineComment (c:cs) = skipLineComment cs
+    skipLineComment [] = error "no newline after // comment"
 
     ppNumber ns (oneOf simplePpNumberSuffix -> (Just s, cs)) = ppNumber (ns ++ s) cs
     ppNumber ns (bsc -> (Just (BSC c@(isPpNumberDigitNoSep -> True)), cs)) = ppNumber (ns ++ [c]) cs
