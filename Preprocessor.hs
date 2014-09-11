@@ -49,15 +49,13 @@ directive (optionalWhitespace -> PpTok (PreprocessingOpOrPunc "#") :
   where
     (line, rest) = splitAtNewline ts
 -- Null directive and some forms of non-directive
-directive (PpTok (PreprocessingOpOrPunc "#") : ts) = Just ("", line, rest)
+directive (optionalWhitespace -> PpTok (PreprocessingOpOrPunc "#") : ts) = Just ("", line, rest)
   where
     (line, rest) = splitAtNewline ts
 directive _ = Nothing
 
 makePpFile :: [PpTokOrWhitespace] -> Group
-makePpFile toks = case makeGroup toks of
-    (g, []) -> g
-    _ -> error "#else/#elif/#endif with no matching #if"
+makePpFile toks = makeTopLevelGroup toks
   where
     makeGroupPart [] = endGroup []
     makeGroupPart (directive -> Just ("if", line, rest)) = makeIfSection (If line) rest
@@ -74,8 +72,15 @@ makePpFile toks = case makeGroup toks of
     endGroup toks = (Nothing, toks)
 
     makeGroup = first Group . run
-      where run (makeGroupPart -> (Just p, toks)) = first (p:) (run toks)
+      where run (makeGroupPart -> (Just p, toks)) = (p:ps, ts)
+              where (ps, ts) = run toks
             run toks = ([], toks)
+
+    makeTopLevelGroup = Group . run
+      where run [] = []
+            run ts = case makeGroupPart ts of
+              (Just p, ts') -> p:run ts'
+              _ -> error "#else/#elif/#endif with no matching #if"
 
     makeIfSection ifCond ts = result
       where
@@ -100,7 +105,10 @@ concatTextLines :: Group -> Group
 concatTextLines (Group gps) = Group (run gps)
   where
     run :: [GroupPart] -> [GroupPart]
-    run (TextLine ts1:TextLine ts2:gps) = run (TextLine (ts1 ++ ts2):gps)
+    run (TextLine ts:gps) = TextLine (ts ++ rest):run gps'
+      where extract (TextLine ts:gps) = first (ts ++) $ extract gps
+            extract gps = ([], gps)
+            (rest, gps') = extract gps
     run (IfSection ig g eil:gps) = IfSection (map concatInGroup ig) (concatTextLines g) eil:run gps
       where concatInGroup (IfGroup c g) = IfGroup c (concatTextLines g)
     run (gp:gps) = gp:run gps
@@ -150,3 +158,4 @@ evaluateCondition (Ifndef (ifdefMacroName -> Just m)) = do
 
 expandMacros :: MonadPreprocessor m => [PpTokOrWhitespace] -> m [PpTokOrWhitespace]
 expandMacros = return
+
