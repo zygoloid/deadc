@@ -144,7 +144,7 @@ handleDirective "include" toks = do
   toks' <- expand toks
   g <- includeFile (impldef_stringizeForInclude toks')
   extractTokens g
-handleDirective "define" (PpTok (Identifier m):PpTok (PreprocessingOpOrPunc "(")):ts) = do
+handleDirective "define" (PpTok (Identifier m):PpTok (PreprocessingOpOrPunc "("):ts) = do
   return undefined
 handleDirective "define" (PpTok (Identifier m):ts) = do
   return undefined
