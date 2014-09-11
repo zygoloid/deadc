@@ -105,6 +105,8 @@ data Macro
 class Monad m => MonadPreprocessor m where
   includeFile :: String -> m Group
   macroDefinition :: String -> m (Maybe Macro)
+  defineMacro :: String -> Macro -> m ()
+  undefineMacro :: String -> m ()
 
 -- FIXME: The standard doesn't say to do this, but it's implied.
 concatTextLines :: Group -> Group
