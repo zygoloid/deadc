@@ -8,6 +8,7 @@ import Lexer (BasicSourceCharacter(..),
 
 import Control.Arrow (first)
 import Control.Monad (liftM, liftM2)
+import Data.Maybe (isJust, isNothing)
 
 containsNewline :: PpTokOrWhitespace -> Bool
 containsNewline (Whitespace Newline) = True
@@ -97,8 +98,11 @@ makePpFile toks = makeTopLevelGroup toks
     makeEndifLine (toks@(directive -> Just ("endif", line, rest))) = (Endif line, rest)
     makeEndifLine _ = error "missing #endif"
 
+data Macro = Macro
+
 class Monad m => MonadPreprocessor m where
   includeFile :: Bool -> String -> m Group
+  macroDefinition :: String -> m (Maybe Macro)
 
 -- FIXME: The standard doesn't say to do this, but it's implied.
 concatTextLines :: Group -> Group
@@ -141,20 +145,27 @@ findEnabledGroup (IfGroup c g:igs) elseg = do
   if b then return g else findEnabledGroup igs elseg
 findEnabledGroup [] elseg = return elseg
 
+isEndOfDirective :: [PpTokOrWhitespace] -> Bool
+isEndOfDirective (optionalWhitespace -> [Whitespace Newline]) = True
+isEndOfDirective _ = False
+
 ifdefMacroName :: [PpTokOrWhitespace] -> Maybe String
 ifdefMacroName (cleanDirective -> optionalWhitespace ->
-                PpTok (Identifier m):(optionalWhitespace -> [])) = Just m
+                PpTok (Identifier m):(isEndOfDirective -> True)) = Just m
 ifdefMacroName _ = Nothing
 
 evaluateCondition :: MonadPreprocessor m => IfCond -> m Bool
 evaluateCondition (If (cleanDirective -> toks)) = do
   toks' <- expandMacros toks
-  -- FIXME: ...
+  -- FIXME: substitute 1 for 'true', 0 for other identifiers, evaluate
   return True
 evaluateCondition (Ifdef (ifdefMacroName -> Just m)) = do
-  return True -- FIXME
+  md <- macroDefinition m
+  return $ isJust md
 evaluateCondition (Ifndef (ifdefMacroName -> Just m)) = do
-  return True -- FIXME
+  md <- macroDefinition m
+  return $ isNothing md
+evaluateCondition _ = error "malformed #ifdef / #ifndef condition"
 
 expandMacros :: MonadPreprocessor m => [PpTokOrWhitespace] -> m [PpTokOrWhitespace]
 expandMacros = return

@@ -9,9 +9,11 @@ instance Monad Id where
   a >>= f = f (runId a)
 instance MonadPreprocessor Id where
   includeFile = error "can't include files"
+  macroDefinition "__cplusplus" = return (Just Macro)
+  macroDefinition "A" = return (Just Macro)
+  macroDefinition _ = return Nothing
 
 main = do
   s <- getContents
   let Id ppToks = extractTokens . concatTextLines . makePpFile . phase123 $ map PSC s
   putStrLn $ concatMap ((++ "\n") . show) ppToks
-  --putStrLn $ map (\x -> case x of ',' -> '\n'; _ -> x) $ show ppToks
