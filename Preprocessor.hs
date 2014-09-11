@@ -133,17 +133,21 @@ extractTokens (Group gps) = liftM concat $ mapM extractTokensFromLine gps
 extractTokensFromLine (IfSection ifgs elseg eol) = do
   g <- findEnabledGroup ifgs elseg
   extractTokens g
-extractTokensFromLine (ControlLine d (cleanDirective -> toks)) = handleDirective d toks
+extractTokensFromLine (ControlLine d (cleanDirective -> toks)) = handleDirective d (optionalWhitespace toks)
 extractTokensFromLine (TextLine ts) = expand ts
 
 handleDirective :: MonadPreprocessor m => String -> [PpTokOrWhitespace] -> m [PpTokOrWhitespace]
-handleDirective "include" (optionalWhitespace -> PpTok (HeaderName n):(isEndOfDirective -> True)) = do
+handleDirective "include" (PpTok (HeaderName n):(isEndOfDirective -> True)) = do
   g <- includeFile n
   extractTokens g
 handleDirective "include" toks = do
   toks' <- expand toks
   g <- includeFile (impldef_stringizeForInclude toks')
   extractTokens g
+handleDirective "define" (PpTok (Identifier m):PpTok (PreprocessingOpOrPunc "(")):ts) = do
+  return undefined
+handleDirective "define" (PpTok (Identifier m):ts) = do
+  return undefined
 handleDirective d toks = return []
 
 findEnabledGroup :: MonadPreprocessor m => [IfGroup] -> Group -> m Group
@@ -164,7 +168,7 @@ ifdefMacroName _ = Nothing
 evaluateCondition :: MonadPreprocessor m => IfCond -> m Bool
 evaluateCondition (If (cleanDirective -> toks)) = do
   toks' <- expand toks
-  -- FIXME: substitute 1 for 'true', 0 for other identifiers, evaluate
+  -- FIXME: substitute 1 for 'true', 0 for other identifiers, evaluate as expression
   return True
 evaluateCondition (Ifdef (ifdefMacroName -> Just m)) = do
   md <- macroDefinition m
