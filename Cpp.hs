@@ -8,9 +8,11 @@ instance Monad Id where
   return = Id
   a >>= f = f (runId a)
 instance MonadPreprocessor Id where
-  includeFile = error "can't include files"
-  macroDefinition "__cplusplus" = return (Just Macro)
-  macroDefinition "A" = return (Just Macro)
+  includeFile n = return (Group [TextLine [PpTok $ StringLiteral n]])
+  macroDefinition "__cplusplus" = return . Just $ ObjectMacro [PpTok $ PpNumber "201402L"]
+  macroDefinition "__FILE__" = return . Just $ ObjectMacro [PpTok $ StringLiteral "\"foo.cpp\""]
+  macroDefinition "__LINE__" = return . Just $ ObjectMacro [PpTok $ PpNumber "123"]
+  macroDefinition "A" = return . Just $ ObjectMacro []
   macroDefinition _ = return Nothing
 
 main = do

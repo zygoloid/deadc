@@ -98,10 +98,12 @@ makePpFile toks = makeTopLevelGroup toks
     makeEndifLine (toks@(directive -> Just ("endif", line, rest))) = (Endif line, rest)
     makeEndifLine _ = error "missing #endif"
 
-data Macro = Macro
+data Macro
+  = ObjectMacro { macroReplacement :: [PpTokOrWhitespace] }
+  | FunctionMacro { macroParams :: [String], isMacroVariadic :: Bool, macroReplacement :: [PpTokOrWhitespace] }
 
 class Monad m => MonadPreprocessor m where
-  includeFile :: Bool -> String -> m Group
+  includeFile :: String -> m Group
   macroDefinition :: String -> m (Maybe Macro)
 
 -- FIXME: The standard doesn't say to do this, but it's implied.
@@ -118,6 +120,8 @@ concatTextLines (Group gps) = Group (run gps)
     run (gp:gps) = gp:run gps
     run [] = []
 
+-- FIXME: We also need to clean whitespace between the # and the macro name, which is discarded before we get here!
+-- Maybe just flatten all vertical whitespace to a single space in phase 3, then discard this check.
 cleanDirective :: [PpTokOrWhitespace] -> [PpTokOrWhitespace]
 cleanDirective = map clean
   where clean (Whitespace Vertical) = error "vertical whitespace within directive"
@@ -130,14 +134,17 @@ extractTokensFromLine (IfSection ifgs elseg eol) = do
   g <- findEnabledGroup ifgs elseg
   extractTokens g
 extractTokensFromLine (ControlLine d (cleanDirective -> toks)) = handleDirective d toks
-extractTokensFromLine (TextLine ts) = expandMacros ts
+extractTokensFromLine (TextLine ts) = expand ts
 
 handleDirective :: MonadPreprocessor m => String -> [PpTokOrWhitespace] -> m [PpTokOrWhitespace]
+handleDirective "include" (optionalWhitespace -> PpTok (HeaderName n):(isEndOfDirective -> True)) = do
+  g <- includeFile n
+  extractTokens g
+handleDirective "include" toks = do
+  toks' <- expand toks
+  g <- includeFile (impldef_stringizeForInclude toks')
+  extractTokens g
 handleDirective d toks = return []
--- FIXME: header-name or expand macros
---handleDirective "include" toks = do
---  Group gps' <- includeFile toks
---  extractTokens (gps' ++ gps)
 
 findEnabledGroup :: MonadPreprocessor m => [IfGroup] -> Group -> m Group
 findEnabledGroup (IfGroup c g:igs) elseg = do
@@ -156,7 +163,7 @@ ifdefMacroName _ = Nothing
 
 evaluateCondition :: MonadPreprocessor m => IfCond -> m Bool
 evaluateCondition (If (cleanDirective -> toks)) = do
-  toks' <- expandMacros toks
+  toks' <- expand toks
   -- FIXME: substitute 1 for 'true', 0 for other identifiers, evaluate
   return True
 evaluateCondition (Ifdef (ifdefMacroName -> Just m)) = do
@@ -167,6 +174,8 @@ evaluateCondition (Ifndef (ifdefMacroName -> Just m)) = do
   return $ isNothing md
 evaluateCondition _ = error "malformed #ifdef / #ifndef condition"
 
-expandMacros :: MonadPreprocessor m => [PpTokOrWhitespace] -> m [PpTokOrWhitespace]
-expandMacros = return
+expand :: MonadPreprocessor m => [PpTokOrWhitespace] -> m [PpTokOrWhitespace]
+expand = return
 
+impldef_stringizeForInclude :: [PpTokOrWhitespace] -> String
+impldef_stringizeForInclude ts = show ts

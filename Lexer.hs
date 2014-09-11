@@ -212,6 +212,7 @@ phase123 pscs = run StartOfLine pscs
     run state cs = (tok:run (newState state tok) cs')
       where (tok, cs') = ppTokOrWhitespace cs
             newState _ (Whitespace Newline) = StartOfLine
+            newState state (Whitespace _) = state
             newState StartOfLine (PpTok (PreprocessingOpOrPunc "#")) = AfterHash
             newState AfterHash (PpTok (Identifier "include")) = AfterHashInclude
             newState _ _ = AnywhereElse
