@@ -5,10 +5,12 @@ import Lexer (BasicSourceCharacter(..),
               PpTokOrWhitespace(..),
               PreprocessingToken(..),
               Whitespace(..))
+import Macros
 
 import Control.Arrow (first)
 import Control.Monad (liftM, liftM2)
 import Data.Maybe (isJust, isNothing)
+import qualified Data.Map as DM
 
 containsNewline :: PpTokOrWhitespace -> Bool
 containsNewline (Whitespace Newline) = True
@@ -98,15 +100,25 @@ makePpFile toks = makeTopLevelGroup toks
     makeEndifLine (toks@(directive -> Just ("endif", line, rest))) = (Endif line, rest)
     makeEndifLine _ = error "missing #endif"
 
-data Macro
-  = ObjectMacro { macroReplacement :: [PpTokOrWhitespace] }
-  | FunctionMacro { macroParams :: [String], isMacroVariadic :: Bool, macroReplacement :: [PpTokOrWhitespace] }
-
 class Monad m => MonadPreprocessor m where
   includeFile :: String -> m Group
-  macroDefinition :: String -> m (Maybe Macro)
-  defineMacro :: String -> Macro -> m ()
-  undefineMacro :: String -> m ()
+  getMacroScope :: m MacroScope
+  putMacroScope :: MacroScope -> m ()
+
+macroDefinition :: MonadPreprocessor m => String -> m (Maybe Macro)
+macroDefinition name = do
+  scope <- getMacroScope
+  return $ DM.lookup name scope
+
+defineMacro :: MonadPreprocessor m => String -> Macro -> m ()
+defineMacro name macro = do
+  scope <- getMacroScope
+  putMacroScope (DM.insert name macro scope)
+
+undefineMacro :: MonadPreprocessor m => String -> m ()
+undefineMacro name = do
+  scope <- getMacroScope
+  putMacroScope (DM.delete name scope)
 
 -- FIXME: The standard doesn't say to do this, but it's implied.
 concatTextLines :: Group -> Group
@@ -181,7 +193,9 @@ evaluateCondition (Ifndef (ifdefMacroName -> Just m)) = do
 evaluateCondition _ = error "malformed #ifdef / #ifndef condition"
 
 expand :: MonadPreprocessor m => [PpTokOrWhitespace] -> m [PpTokOrWhitespace]
-expand = return
+expand toks = do
+  scope <- getMacroScope
+  return $ replaceMacros scope toks
 
 impldef_stringizeForInclude :: [PpTokOrWhitespace] -> String
 impldef_stringizeForInclude ts = show ts

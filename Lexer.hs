@@ -112,7 +112,7 @@ data PreprocessingToken
   | StringLiteral String
   | UserDefinedStringLiteral String
   | PreprocessingOpOrPunc String
-  | Other BasicSourceCharacter
+  | Other Char
   deriving (Show)
 
 data Whitespace
@@ -265,7 +265,7 @@ phase123 pscs = run StartOfLine pscs
     ppToken (identifier -> (Just s, cs)) = (Identifier s, cs)
     ppToken (bsc -> (Just (BSC '\''), cs)) = error "unmatched ' character"
     ppToken (bsc -> (Just (BSC '"'), cs)) = error "unmatched \" character"
-    ppToken (bsc -> (Just c, cs)) = (Other c, cs)
+    ppToken (bsc -> (Just (BSC c), cs)) = (Other c, cs)
 
     -- [lex.comment]
     skipBlockComment (bsc -> (Just (BSC '*'),
