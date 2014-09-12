@@ -69,7 +69,7 @@ replaceMacros scope = fromHS . expand . toHS
     hsadd hs = map (\(TokenHS t hs') -> TokenHS t (hs `DS.union` hs'))
 
     -- FIXME: check whether it's a valid string literal
-    stringize = flip TokenHS DS.empty . lexStringLiteralToken. quoteAndEscape . concatMap stringizeTokOrWhitespace . foldWhitespace . fromHS
+    stringize = flip TokenHS DS.empty . lexStringLiteralToken . quoteAndEscape . concatMap stringizeTokOrWhitespace . foldWhitespace . fromHS . reverse . optionalWhitespace . reverse . optionalWhitespace
     glue :: [TokenHS] -> [TokenHS] -> [TokenHS]
     glue (TokenHS (PpTok l) hs:(optionalWhitespace -> [])) (optionalWhitespace -> TokenHS (PpTok r) hs':rs) = TokenHS (concatTokens l r) (hs `DS.intersection` hs'):rs
     glue (l:ls) rs = l:glue ls rs
@@ -80,7 +80,7 @@ replaceMacros scope = fromHS . expand . toHS
 toHS = map (flip TokenHS DS.empty)
 fromHS = map (\(TokenHS t _) -> t)
 
-foldWhitespace (Whitespace _:Whitespace _:ts) = Whitespace Horizontal:foldWhitespace ts
+foldWhitespace (Whitespace _:Whitespace _:ts) = foldWhitespace (Whitespace Horizontal:ts)
 foldWhitespace (t:ts) = t:foldWhitespace ts
 foldWhitespace [] = []
 
