@@ -58,7 +58,7 @@ replaceMacros scope = fromHS . expand . toHS
       | Just i <- elemIndex t fp
       = let (is', os') = get (optionalWhitespace $ ap !! i) is
         in subst is' fp ap hs os'
-      where get [] (optionalWhitespace -> (ident -> Just t'):is'') | Just j <- elemIndex t fp = (is'', ap !! j)
+      where get [] (optionalWhitespace -> (ident -> Just t'):is'') | Just j <- elemIndex t' fp = (is'', ap !! j)
             get [] is'' = (is'', [])
             get as is'' = (hh:is'', as)
     subst ((ident -> Just t):is) fp ap hs os
@@ -139,7 +139,7 @@ extract n v (p@(punc -> "("):ts) = ((p:ps ++ a):as, hs, ts')
         extractParens [] = error "missing ) within macro arguments"
 extract 1 False ((punc -> ","):ts) = error "too many macro arguments"
 extract n v ((punc -> ","):ts) | n /= 1 = ([]:as, hs, ts')
-  where (a:as, hs, ts') = extract (n-1) v ts
+  where (as, hs, ts') = extract (n-1) v ts
 extract n v (t:ts) = ((t:a):as, hs, ts')
   where (a:as, hs, ts') = extract n v ts
 

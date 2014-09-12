@@ -13,6 +13,9 @@ predefinedMacros = DM.fromList [
   ("__LINE__", ppNumber "123"),
   ("STR", FunctionMacro ["x"] False [ppIdent "STR2", ppPunc "(", ppIdent "x", ppPunc ")"]),
   ("STR2", FunctionMacro ["x"] False [ppPunc "#", ppIdent "x"]),
+  ("PASTE", FunctionMacro ["x", "y"] False [ppIdent "x", ppPunc "##", ppIdent "y"]),
+  ("PASTEL", FunctionMacro ["x"] False [ppIdent "x", ppPunc "##", ppIdent "y"]),
+  ("PASTER", FunctionMacro ["y"] False [ppIdent "x", ppPunc "##", ppIdent "y"]),
   ("A", ObjectMacro [])]
   where ppNumber x = ObjectMacro [PpTok $ PpNumber x]
         ppString x = ObjectMacro [PpTok $ StringLiteral x]
