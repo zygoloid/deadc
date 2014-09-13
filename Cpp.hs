@@ -26,7 +26,7 @@ newtype PP x = PP { runPP :: State MacroScope x }
 
 instance Monad PP where
   return = PP . return
-  a >>= f = PP $ runPP a >>= (\x -> runPP $ f $! x)
+  a >>= f = PP $ runPP a >>= (\x -> runPP $ f x)
 
 instance MonadPreprocessor PP where
   includeFile n = return (Group [TextLine [PpTok $ StringLiteral n]])
@@ -35,5 +35,6 @@ instance MonadPreprocessor PP where
 
 main = do
   s <- getContents
-  let ppToks = flip evalState predefinedMacros . runPP . extractTokens . concatTextLines . makePpFile . phase123 $ map PSC s
+  let (ppToks, macros) = flip runState predefinedMacros . runPP . extractTokens . concatTextLines . makePpFile . phase123 $ map PSC s
   putStrLn $ concatMap ((++ "\n") . show) ppToks
+  macros `seq` return []
