@@ -68,7 +68,6 @@ replaceMacros scope = fromHS . expand . toHS
 
     hsadd hs = map (\(TokenHS t hs') -> TokenHS t (hs `DS.union` hs'))
 
-    -- FIXME: check whether it's a valid string literal
     stringize = flip TokenHS DS.empty . lexStringLiteralToken . quoteAndEscape . concatMap stringizeTokOrWhitespace . foldWhitespace . fromHS . reverse . optionalWhitespace . reverse . optionalWhitespace
     glue :: [TokenHS] -> [TokenHS] -> [TokenHS]
     glue (TokenHS (PpTok l) hs:(optionalWhitespace -> [])) (optionalWhitespace -> TokenHS (PpTok r) hs':rs) = TokenHS (concatTokens l r) (hs `DS.intersection` hs'):rs
@@ -109,6 +108,7 @@ stringizeToken (Other c) = [c]
 quoteAndEscape = ('"':) . (++"\"") . concatMap clean
   where clean '"' = ['\\', '"']
         clean '\\' = ['\\', '\\']
+-- FIXME DR1709: clean '\n' = ['\\', 'n']
         clean c = [c]
 
 punc (TokenHS (PpTok (PreprocessingOpOrPunc s)) _) = s
