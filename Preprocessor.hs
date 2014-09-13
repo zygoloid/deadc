@@ -169,7 +169,20 @@ handleDirective "undef" _ = error "expected macro name in #undef directive"
 handleDirective d toks = return []
 
 parseFunctionMacro :: [PpTokOrWhitespace] -> Macro
-parseFunctionMacro ts = error "can't parse function-like macro yet"
+parseFunctionMacro (optionalWhitespace -> PpTok (PreprocessingOpOrPunc ")"):ts) = FunctionMacro [] False (strip ts)
+parseFunctionMacro (optionalWhitespace -> ts) = FunctionMacro ps v (strip ts')
+  where (ps, v, ts') = params ts
+        params (Whitespace _:ts) = params ts
+        -- FIXME: not strict enough to guarantee this appears
+        params (PpTok (Identifier p):ts) | p `elem` ps = error "duplicate macro parameter name"
+                                         | otherwise = (p:ps, v, ts')
+          where (ps, v, ts') = delim ts
+        params (PpTok (PreprocessingOpOrPunc "..."):PpTok (PreprocessingOpOrPunc ")"):ts) = ([], True, ts)
+        params _ = error "expected identifier or ... in macro parameter list"
+        delim (Whitespace _:ts) = delim ts
+        delim (PpTok (PreprocessingOpOrPunc ","):ts) = params ts
+        delim (PpTok (PreprocessingOpOrPunc ")"):ts) = ([], False, ts)
+        delim _ = error "expected , or ) after macro parameter name"
 
 findEnabledGroup :: MonadPreprocessor m => [IfGroup] -> Group -> m Group
 findEnabledGroup (IfGroup c g:igs) elseg = do
