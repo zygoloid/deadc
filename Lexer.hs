@@ -113,18 +113,18 @@ data PreprocessingToken
   | UserDefinedStringLiteral String
   | PreprocessingOpOrPunc String
   | Other Char
-  deriving (Show)
+  deriving (Eq, Show)
 
 data Whitespace
   = Horizontal
   | Vertical
   | Newline
-  deriving (Show)
+  deriving (Eq, Show)
 
 data PpTokOrWhitespace
   = PpTok PreprocessingToken
   | Whitespace Whitespace
-  deriving (Show)
+  deriving (Eq, Show)
 
 data Phase123State
   = StartOfLine
@@ -229,6 +229,7 @@ phase123 pscs = run StartOfLine pscs
                        cs))) = skipLineComment cs
     ppTokOrWhitespace cs = first PpTok $ ppToken cs
 
+    -- FIXME: Use UserDefined* tokens if we have a ud-suffix.
     ppToken (csLiteralPrefix -> (Just prefix,
              bsc -> (Just (BSC 'R'),
              bsc -> (Just (BSC '"'),

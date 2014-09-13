@@ -26,7 +26,7 @@ newtype PP x = PP { runPP :: State MacroScope x }
 
 instance Monad PP where
   return = PP . return
-  a >>= f = PP $ runPP a >>= (\x -> runPP $ f x)
+  a >>= f = PP $ runPP a >>= (\x -> runPP $ f $! x)
 
 instance MonadPreprocessor PP where
   includeFile n = return (Group [TextLine [PpTok $ StringLiteral n]])

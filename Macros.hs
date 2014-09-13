@@ -1,5 +1,5 @@
 {-# LANGUAGE ViewPatterns #-}
-module Macros (Macro(..), MacroScope, replaceMacros) where
+module Macros (Macro(..), MacroScope, replaceMacros, macrosAreIdentical) where
 
 import Lexer (PpTokOrWhitespace(..),
               PreprocessingToken(..),
@@ -80,6 +80,7 @@ toHS = map (flip TokenHS DS.empty)
 fromHS = map (\(TokenHS t _) -> t)
 
 foldWhitespace (Whitespace _:Whitespace _:ts) = foldWhitespace (Whitespace Horizontal:ts)
+foldWhitespace (Whitespace _:ts) = Whitespace Horizontal:foldWhitespace ts
 foldWhitespace (t:ts) = t:foldWhitespace ts
 foldWhitespace [] = []
 
@@ -146,3 +147,12 @@ extract n v (t:ts) = ((t:a):as, hs, ts')
 tokIsInHS :: PpTokOrWhitespace -> HideSet -> Bool
 tokIsInHS (PpTok (Identifier s)) hs = s `DS.member` hs
 tokIsInHS _ _ = False
+
+macrosAreIdentical :: Macro -> Macro -> Bool
+macrosAreIdentical (ObjectMacro r1) m@(ObjectMacro r2) | replacementListsAreIdentical r1 r2 = True
+macrosAreIdentical (FunctionMacro p1 v1 r1) m@(FunctionMacro p2 v2 r2) | p1 == p2 && v1 == v2 && replacementListsAreIdentical r1 r2 = True
+macrosAreIdentical _ _ = False
+
+replacementListsAreIdentical :: [PpTokOrWhitespace] -> [PpTokOrWhitespace] -> Bool
+replacementListsAreIdentical as bs = foldWhitespace as == foldWhitespace bs
+

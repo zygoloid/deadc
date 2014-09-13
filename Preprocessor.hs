@@ -112,8 +112,10 @@ macroDefinition name = do
 
 defineMacro :: MonadPreprocessor m => String -> Macro -> m ()
 defineMacro name macro = do
-  scope <- getMacroScope
-  putMacroScope (DM.insert name macro scope)
+    scope <- getMacroScope
+    case DM.lookup name scope of
+      Just old | not (macrosAreIdentical old macro) -> error "macro redefined with different body"
+      _ -> putMacroScope $ DM.insert name macro scope
 
 undefineMacro :: MonadPreprocessor m => String -> m ()
 undefineMacro name = do
@@ -158,17 +160,27 @@ handleDirective "include" toks = do
   toks' <- expand toks
   g <- includeFile (impldef_stringizeForInclude toks')
   extractTokens g
-handleDirective "define" (PpTok (Identifier m):PpTok (PreprocessingOpOrPunc "("):ts) = do
-  return undefined
-handleDirective "define" (PpTok (Identifier m):ts) = do
-  return undefined
+handleDirective "define" (PpTok (Identifier m):PpTok (PreprocessingOpOrPunc "("):ts) = defineMacro m (parseFunctionMacro ts) >> return []
+handleDirective "define" (PpTok (Identifier m):Whitespace _:ts) = defineMacro m (ObjectMacro (strip ts)) >> return []
+handleDirective "define" (PpTok (Identifier m):ts) = error "macro name in #define directive must be followed by ( or whitespace"
+handleDirective "define" _ = error "expected macro name in #define directive"
+handleDirective "undef" (PpTok (Identifier m):(isEndOfDirective -> True)) = undefineMacro m >> return []
+handleDirective "undef" _ = error "expected macro name in #undef directive"
 handleDirective d toks = return []
+
+parseFunctionMacro :: [PpTokOrWhitespace] -> Macro
+parseFunctionMacro ts = error "can't parse function-like macro yet"
 
 findEnabledGroup :: MonadPreprocessor m => [IfGroup] -> Group -> m Group
 findEnabledGroup (IfGroup c g:igs) elseg = do
   b <- evaluateCondition c
   if b then return g else findEnabledGroup igs elseg
 findEnabledGroup [] elseg = return elseg
+
+strip :: [PpTokOrWhitespace] -> [PpTokOrWhitespace]
+strip = stripL . reverse . stripL . reverse
+  where stripL (Whitespace _:ts) = stripL ts
+        stripL ts = ts
 
 isEndOfDirective :: [PpTokOrWhitespace] -> Bool
 isEndOfDirective (optionalWhitespace -> [Whitespace Newline]) = True
