@@ -58,7 +58,13 @@ replaceMacros scope = fromHS . expand . toHS
       | Just i <- elemIndex t fp
       = let (is', os') = get (optionalWhitespace $ ap !! i) is
         in subst is' fp ap hs (os ++ os')
-      where get [] (optionalWhitespace -> (ident -> Just t'):is'') | Just j <- elemIndex t' fp = (is'', ap !! j)
+      -- FIXME: First line below is an ugly hack that's not in Prosser's algorithm.
+      -- This fixes a bug in that algorithm with repeated pasting of empty tokens.
+      -- This would be better fixed by using placemarker tokens or at least factoring
+      -- this code to avoid checking for ## <parameter that has empty argument> in
+      -- multiple places.
+      where get [] (optionalWhitespace -> (ident -> Just t'):(optionalWhitespace -> hh@(punc -> "##"):is'')) | Just j <- elemIndex t' fp = get (optionalWhitespace $ ap !! j) is''
+            get [] (optionalWhitespace -> (ident -> Just t'):is'') | Just j <- elemIndex t' fp = (is'', ap !! j)
             get [] is'' = (is'', [])
             get as is'' = (hh:is'', as)
     subst ((ident -> Just t):is) fp ap hs os
