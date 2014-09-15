@@ -57,7 +57,7 @@ replaceMacros scope = fromHS . expand . toHS
     subst ((ident -> Just t):(optionalWhitespace -> hh@(punc -> "##"):is)) fp ap hs os
       | Just i <- elemIndex t fp
       = let (is', os') = get (optionalWhitespace $ ap !! i) is
-        in subst is' fp ap hs os'
+        in subst is' fp ap hs (os ++ os')
       where get [] (optionalWhitespace -> (ident -> Just t'):is'') | Just j <- elemIndex t' fp = (is'', ap !! j)
             get [] is'' = (is'', [])
             get as is'' = (hh:is'', as)
